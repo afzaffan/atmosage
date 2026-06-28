@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atmosage - Enterprise AI Early Warning</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="app-wrapper">
+        <aside class="sidebar">
+            <div class="logo">
+                <img src="logo_atmosage.webp" alt="Logo Atmosage" style="width: 35px; height: auto; object-fit: contain;">
+                <h2>ATMOSAGE</h2>
+            </div>
+            <nav class="menu">
+                <p class="menu-label">MAIN MENU</p>
+                <a href="#" data-page="dashboard" class="nav-item active"><i class="fa-solid fa-chart-pie"></i> Dashboard</a>
+                <a href="#" data-page="peta" class="nav-item"><i class="fa-solid fa-map-location-dot"></i> Peta & Pencarian</a>
+                <a href="#" data-page="forecast" class="nav-item"><i class="fa-solid fa-chart-line"></i> Prediksi & Forecast</a>
+                <a href="#" data-page="atmosfer" class="nav-item"><i class="fa-solid fa-cloud-sun-rain"></i> Data Atmosfer</a>
+                <a href="#" data-page="faktor" class="nav-item"><i class="fa-solid fa-microscope"></i> Analisis Faktor (SHAP)</a>
+                <a href="#" data-page="aari" class="nav-item"><i class="fa-solid fa-gauge-high"></i> Indeks AARI</a>
+                
+                <p class="menu-label" style="margin-top: 20px;">ANALYTICS & TOOLS</p>
+                <a href="#" data-page="perbandingan" class="nav-item"><i class="fa-solid fa-code-compare"></i> Perbandingan Wilayah</a>
+                <a href="#" data-page="skenario" class="nav-item"><i class="fa-solid fa-vial"></i> Scenario Simulation</a>
+                <a href="#" data-page="riwayat" class="nav-item"><i class="fa-solid fa-clock-rotate-left"></i> Riwayat Pencarian</a>
+                
+                <p class="menu-label" style="margin-top: 20px;">SYSTEM</p>
+                <a href="#" data-page="tentang" class="nav-item"><i class="fa-solid fa-circle-info"></i> Tentang ATMOSAGE</a>
+                <a href="#" data-page="metodologi" class="nav-item"><i class="fa-solid fa-book"></i> Metodologi</a>
+                <a href="#" data-page="bantuan" class="nav-item"><i class="fa-solid fa-headset"></i> Pusat Bantuan</a>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <header class="top-header">
+                <div class="header-title" style="display: flex; align-items: center;">
+                    <button id="sidebar-toggle" style="background: transparent; border: none; font-size: 20px; cursor: pointer; color: var(--text-dark); margin-right: 20px; transition: 0.2s;"><i class="fa-solid fa-bars"></i></button>
+                    <div class="header-title-text">
+                        <h1 id="page-title-text">Dashboard Overview</h1>
+                        <p id="page-subtitle-text">Ringkasan Sistem Peringatan Dini Bencana Atmosfer</p>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <div id="alert-container" class="alert-badge hidden">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <span>Risiko Tinggi: <b id="alert-city"></b></span>
+                    </div>
+                </div>
+            </header>
+
+            <div id="page-router" class="content-body" data-active-page="dashboard">
+                
+                <section class="module-kpi kpi-grid">
+                    <div class="kpi-card"><div class="kpi-icon primary"><i class="fa-solid fa-globe"></i></div><div class="kpi-info"><p>Rata-rata AARI Nasional</p><h3 id="kpi-avg">-- <span>(Menghitung...)</span></h3></div></div>
+                    <div class="kpi-card"><div class="kpi-icon warning"><i class="fa-solid fa-location-crosshairs"></i></div><div class="kpi-info"><p>Wilayah Risiko Tinggi</p><h3 id="kpi-tinggi">-- <span>Titik</span></h3></div></div>
+                    <div class="kpi-card"><div class="kpi-icon danger"><i class="fa-solid fa-fire-flame-curved"></i></div><div class="kpi-info"><p>Risiko Sangat Tinggi</p><h3 id="kpi-sangat-tinggi">-- <span>Titik</span></h3></div></div>
+                    <div class="kpi-card"><div class="kpi-icon secondary"><i class="fa-solid fa-satellite-dish"></i></div><div class="kpi-info"><p>Status AI XGBoost</p><h3>Aktif <span>(Live)</span></h3></div></div>
+                </section>
+
+                <section class="module-search card search-card">
+                    <div class="card-header"><h3><i class="fa-solid fa-magnifying-glass-location"></i> Cari Kabupaten / Kota se-Indonesia</h3></div>
+                    <div class="search-bar-container">
+                        <div class="search-bar"><i class="fa-solid fa-magnifying-glass"></i><input type="text" id="search-input" placeholder="Ketik nama kabupaten/kota (contoh: Jakarta Pusat)..."><button id="btn-search" class="btn-primary" style="width: auto; padding: 8px 15px;">Cari Wilayah</button></div>
+                        <ul id="search-results" class="search-results-list hidden"></ul>
+                    </div>
+                </section>
+
+                <section class="module-map card map-card">
+                    <div class="card-header"><h3><i class="fa-solid fa-map"></i> Peta Risiko AARI Real-Time</h3></div>
+                    <div id="map" class="map-container"></div>
+                </section>
+
+                <section class="module-top10 card top10-card">
+                    <div class="card-header"><h3><i class="fa-solid fa-ranking-star"></i> Top 10 Wilayah Risiko Tertinggi</h3></div>
+                    <div class="top10-list" id="top10-list"><p style="text-align:center; color:#64748b; margin-top:20px;">Menarik data AI...</p></div>
+                </section>
+
+                <section class="module-trend card trend-card">
+                    <div class="card-header"><h3><i class="fa-solid fa-chart-line"></i> Tren AARI Nasional (30 Hari Terakhir)</h3></div>
+                    <div class="canvas-wrapper"><canvas id="trendChart"></canvas></div>
+                </section>
+
+                <section class="module-aari card score-card">
+                    <div class="card-header" style="width: 100%; text-align: left; margin-bottom: 5px; border-bottom: 1px solid var(--border-color); padding-bottom:15px;">
+                        <h3 id="aari-city-name"><i class="fa-solid fa-location-dot"></i> Belum Ada Wilayah Terpilih</h3>
+                    </div>
+                    
+                    <div class="aari-content-wrapper" style="display: flex; gap: 50px; align-items: center; justify-content: center; flex-wrap: wrap; width: 100%; margin-top: 20px;">
+                        <div class="aari-gauge-section" style="display: flex; flex-direction: column; align-items: center;">
+                            <div class="gauge-wrapper"><div class="circular-progress" id="score-gauge" style="height: 250px; width: 250px;"><div class="inner-circle" style="height: 200px; width: 200px; background: var(--card-bg); display:flex; flex-direction:column;"><span id="risk-score" style="font-size: 65px; font-weight: 700; color: var(--text-dark);">--</span><span style="font-size:12px; color:var(--text-muted); margin-top:-5px;">AARI Saat Ini</span></div></div></div>
+                            <div class="badge-wrapper" style="margin-top: 25px;"><span id="risk-category" class="risk-badge" style="font-size: 16px; padding: 10px 30px; font-weight:700;">Menunggu Data...</span></div>
+                            <span style="font-size:12px; color:var(--text-muted); margin-top:10px;">Skala 0 - 100</span>
+                        </div>
+
+                        <div class="aari-legend-section card" style="display: flex; flex-direction: column; gap: 5px; text-align: left; padding: 25px; box-shadow:none; border:1px solid #e2e8f0;">
+                            <h4 style="font-size: 15px; margin-bottom: 10px;">Kategori Risiko Atmosfer</h4>
+                            <div id="legend-sangat-rendah" class="legend-item">
+                                <div style="width: 25px; height: 25px; background: #008000; border-radius: 4px; flex-shrink: 0;"></div>
+                                <div style="width: 60px; font-weight:600; font-size:14px; color:var(--text-dark);">0 - 20</div>
+                                <div style="font-size: 14px; color: var(--text-dark);">Sangat Rendah</div>
+                            </div>
+                            <div id="legend-rendah" class="legend-item">
+                                <div style="width: 25px; height: 25px; background: #16a34a; border-radius: 4px; flex-shrink: 0;"></div>
+                                <div style="width: 60px; font-weight:600; font-size:14px; color:var(--text-dark);">20 - 40</div>
+                                <div style="font-size: 14px; color: var(--text-dark);">Rendah</div>
+                            </div>
+                            <div id="legend-sedang" class="legend-item">
+                                <div style="width: 25px; height: 25px; background: #f59e0b; border-radius: 4px; flex-shrink: 0;"></div>
+                                <div style="width: 60px; font-weight:600; font-size:14px; color:var(--text-dark);">40 - 60</div>
+                                <div style="font-size: 14px; color: var(--text-dark);">Sedang</div>
+                            </div>
+                            <div id="legend-tinggi" class="legend-item">
+                                <div style="width: 25px; height: 25px; background: #f97316; border-radius: 4px; flex-shrink: 0;"></div>
+                                <div style="width: 60px; font-weight:600; font-size:14px; color:var(--text-dark);">60 - 80</div>
+                                <div style="font-size: 14px; font-weight:600; color: var(--text-dark);">Tinggi</div>
+                            </div>
+                            <div id="legend-sangat-tinggi" class="legend-item">
+                                <div style="width: 25px; height: 25px; background: #ef4444; border-radius: 4px; flex-shrink: 0;"></div>
+                                <div style="width: 60px; font-weight:600; font-size:14px; color:var(--text-dark);">80 - 100</div>
+                                <div style="font-size: 14px; color: var(--text-dark);">Sangat Tinggi</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="interpretasi-box" style="margin-top: 30px; padding: 20px; background: #f8fafc; border: 1px dashed var(--border-color); border-radius: 12px; text-align: left; width: 100%;">
+                        <h4 style="font-size: 15px; color: var(--text-dark); margin-bottom: 10px;">Interpretasi Risiko</h4>
+                        <p id="aari-interpretasi-text" style="font-size: 13.5px; color: var(--text-muted); line-height: 1.6;">Silakan pilih wilayah pada peta untuk melihat interpretasi tingkat risiko penuaan biologis berbasis atmosfer.</p>
+                    </div>
+                </section>
+
+                <section class="module-forecast card chart-card">
+                    <div class="card-header"><h3 id="forecast-title"><i class="fa-solid fa-chart-area"></i> Tren Prediksi 7 Hari</h3></div>
+                    <div class="canvas-wrapper"><canvas id="forecastChart"></canvas></div>
+                </section>
+
+                <section class="module-faktor-page card">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-microscope"></i> Analisis Faktor Dominan (SHAP)</h3>
+                    </div>
+                    <div class="canvas-wrapper" style="min-height: 400px;">
+                        <canvas id="featureChart"></canvas>
+                    </div>
+                    <div class="fa-desc-box">
+                    <i class="fa-solid fa-circle-info"></i>   
+                    <p><b>Explainable AI (SHAP):</b> Grafik menunjukkan persentase bobot kontribusi setiap parameter cuaca dan polusi dalam menentukan skor akhir AARI pada model XGBoost. Semakin besar bobot persentasenya (warna mengarah ke merah), semakin signifikan parameter tersebut mempengaruhi tingkat risiko berbahaya.</p>
+                    </div>                 
+                </section>
+
+                <section class="module-atmosfer">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 20px;">
+                        <div class="card">
+                            <div class="card-header"><h3><i class="fa-solid fa-location-dot"></i> Kota Terpilih</h3></div>
+                            <div style="padding: 10px 0;">
+                                <h2 id="atmos-city-name" style="color: var(--secondary); font-size: 22px;">Belum Ada Wilayah Terpilih</h2>
+                                <p style="color: var(--text-muted); margin-top: 8px; font-size: 13.5px;"><i class="fa-regular fa-clock"></i> Waktu Update: <span id="atmos-time">-</span></p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header"><h3><i class="fa-solid fa-circle-info"></i> Informasi Tambahan</h3></div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 13.5px; color: var(--text-muted); padding: 5px 0;">
+                                <div><i class="fa-solid fa-temperature-half" style="width:20px; color: #ef4444;"></i> Suhu: <b id="atmos-temp" style="color:var(--text-dark);">--</b></div>
+                                <div><i class="fa-solid fa-droplet" style="width:20px; color: #3b82f6;"></i> Kelembapan: <b id="atmos-humid" style="color:var(--text-dark);">--</b></div>
+                                <div><i class="fa-solid fa-wind" style="width:20px; color: #94a3b8;"></i> K. Angin: <b id="atmos-windspeed" style="color:var(--text-dark);">--</b></div>
+                                <div><i class="fa-solid fa-compass" style="width:20px; color: #f59e0b;"></i> A. Angin: <b id="atmos-winddir" style="color:var(--text-dark);">--</b></div>
+                                <div><i class="fa-solid fa-arrow-down-up-across-line" style="width:20px; color: #8b5cf6;"></i> Tekanan Udara: <b id="atmos-pressure" style="color:var(--text-dark);">--</b></div>
+                                <div><i class="fa-solid fa-cloud-rain" style="width:20px; color: #0ea5e9;"></i> Hujan: <b id="atmos-precip" style="color:var(--text-dark);">--</b></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card fa-data-card" style="flex: 1;">
+                        <div class="card-header"><h3><i class="fa-solid fa-cloud-sun-rain"></i> Kondisi Kualitas Udara & Indeks Ekstrem Saat Ini</h3></div>
+                        <div class="fa-params-list" style="margin-top: 20px;">
+                            <div class="fa-param-item"><div class="fa-param-header"><span>PM2.5 (µg/m³)</span><b id="fa-val-pm25">--</b></div><div class="fa-progress-bg"><div class="fa-progress-fill" id="fa-bar-pm25"></div></div><span class="fa-status" id="fa-stat-pm25">Menunggu...</span></div>
+                            <div class="fa-param-item"><div class="fa-param-header"><span>NO2 (µg/m³)</span><b id="fa-val-no2">--</b></div><div class="fa-progress-bg"><div class="fa-progress-fill" id="fa-bar-no2"></div></div><span class="fa-status" id="fa-stat-no2">Menunggu...</span></div>
+                            <div class="fa-param-item"><div class="fa-param-header"><span>O3 (µg/m³)</span><b id="fa-val-o3">--</b></div><div class="fa-progress-bg"><div class="fa-progress-fill" id="fa-bar-o3"></div></div><span class="fa-status" id="fa-stat-o3">Menunggu...</span></div>
+                            <div class="fa-param-item"><div class="fa-param-header"><span>UV Index</span><b id="fa-val-uv">--</b></div><div class="fa-progress-bg"><div class="fa-progress-fill" id="fa-bar-uv"></div></div><span class="fa-status" id="fa-stat-uv">Menunggu...</span></div>
+                            <div class="fa-param-item"><div class="fa-param-header"><span>Heat Stress Index (°C)</span><b id="fa-val-hsi">--</b></div><div class="fa-progress-bg"><div class="fa-progress-fill" id="fa-bar-hsi"></div></div><span class="fa-status" id="fa-stat-hsi">Menunggu...</span></div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="module-perbandingan compare-wrapper">
+                    <div class="card compare-col"><div class="card-header"><h3 id="comp-title-1"><i class="fa-solid fa-city"></i> Wilayah A</h3></div><select id="comp-sel-1" class="comp-select"><option value="">-- Pilih Wilayah / Kabupaten --</option></select><div class="comp-score-box"><div class="circular-progress comp-gauge" id="comp-gauge-1"><div class="inner-circle"><span id="comp-score-1">--</span></div></div><span id="comp-badge-1" class="risk-badge" style="background:#64748b;">Belum Dipilih</span></div><h4 class="comp-subtitle">Komparasi Fitur Utama</h4><div class="comp-params"><div class="comp-param-row"><span>Kec. Angin</span><b id="c1-pm25">--</b></div><div class="comp-param-row"><span>Arah Angin</span><b id="c1-no2">--</b></div><div class="comp-param-row"><span>Curah Hujan</span><b id="c1-o3">--</b></div><div class="comp-param-row"><span>UV Index</span><b id="c1-uv">--</b></div><div class="comp-param-row"><span>HSI</span><b id="c1-hsi">--</b></div></div></div>
+                    <div class="card compare-col"><div class="card-header"><h3 id="comp-title-2"><i class="fa-solid fa-city"></i> Wilayah B</h3></div><select id="comp-sel-2" class="comp-select"><option value="">-- Pilih Wilayah / Kabupaten --</option></select><div class="comp-score-box"><div class="circular-progress comp-gauge" id="comp-gauge-2"><div class="inner-circle"><span id="comp-score-2">--</span></div></div><span id="comp-badge-2" class="risk-badge" style="background:#64748b;">Belum Dipilih</span></div><h4 class="comp-subtitle">Komparasi Fitur Utama</h4><div class="comp-params"><div class="comp-param-row"><span>Kec. Angin</span><b id="c2-pm25">--</b></div><div class="comp-param-row"><span>Arah Angin</span><b id="c2-no2">--</b></div><div class="comp-param-row"><span>Curah Hujan</span><b id="c2-o3">--</b></div><div class="comp-param-row"><span>UV Index</span><b id="c2-uv">--</b></div><div class="comp-param-row"><span>HSI</span><b id="c2-hsi">--</b></div></div></div>
+                </section>
+
+                <section class="module-skenario simulation-grid">
+                    <div class="card sim-input-card">
+                        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                            <h3><i class="fa-solid fa-sliders"></i> Kontrol Parameter Cuaca</h3>
+                            <span style="font-size:11px; font-weight:700; background:#f0fdf4; color:#16a34a; padding:4px 10px; border-radius:6px; border:1px solid #bbf7d0;">AI + Pearson Hybrid</span>
+                        </div>
+                        <p class="sim-desc">Sesuaikan nilai parameter di bawah ini. Arsitektur hybrid kami akan mengkalkulasi dampak perubahan ekstrem terhadap prediksi awal XGBoost Anda.</p>
+                        
+                        <div class="slider-group" style="margin-bottom: 25px; padding-bottom: 20px; border-bottom: 1px solid var(--border-color);">
+                            <div class="slider-label" style="margin-bottom: 10px;"><span>Pilih Wilayah Basis Simulasi</span></div>
+                            <div class="search-bar" style="padding:0; background:transparent; border:none;">
+                                <input type="text" id="sim-search-input" list="sim-datalist" placeholder="Cari kota/kabupaten..." style="width:100%; padding:10px 15px; border-radius:8px; border:1px solid var(--border-color); background:#f8fafc; color:var(--text-dark); outline:none;">
+                                <datalist id="sim-datalist"></datalist>
+                            </div>
+                            <p id="sim-selected-info" style="font-size: 12.5px; color: var(--text-muted); margin-top: 10px; display:none;"><i class="fa-solid fa-check-circle"></i> Wilayah terpilih. Menarik data cuaca saat ini...</p>
+                        </div>
+
+                        <div class="slider-group"><div class="slider-label"><span>Kecepatan Angin (km/h)</span> <b id="sim-txt-windspeed">15.0</b></div><input type="range" id="sim-val-windspeed" min="0" max="150" step="1" value="15"></div><div class="slider-group"><div class="slider-label"><span>Arah Angin (°)</span> <b id="sim-txt-winddir">180</b></div><input type="range" id="sim-val-winddir" min="0" max="360" step="1" value="180"></div><div class="slider-group"><div class="slider-label"><span>Curah Hujan (mm)</span> <b id="sim-txt-precip">0.0</b></div><input type="range" id="sim-val-precip" min="0" max="100" step="0.5" value="0"></div><div class="slider-group"><div class="slider-label"><span>UV Index</span> <b id="sim-txt-uv">5.0</b></div><input type="range" id="sim-val-uv" min="0" max="15" step="0.1" value="5.0"></div><div class="slider-group"><div class="slider-label"><span>Heat Stress Index (°C)</span> <b id="sim-txt-hsi">28.0</b></div><input type="range" id="sim-val-hsi" min="20" max="45" step="0.5" value="28.0"></div><button id="btn-simulate" class="btn-primary"><i class="fa-solid fa-play"></i> Jalankan Simulasi AARI</button>
+                    </div>
+                    <div class="card sim-result-card score-card"><div class="card-header"><h3><i class="fa-solid fa-flask"></i> Hasil Simulasi Risiko</h3></div><div class="gauge-wrapper" style="margin-top: 30px;"><div class="circular-progress" id="sim-score-gauge"><div class="inner-circle"><span id="sim-risk-score">--</span></div></div></div><div class="badge-wrapper"><span id="sim-risk-category" class="risk-badge" style="background:#64748b;">Menunggu Simulasi</span></div><div class="delta-box"><span class="delta-label">Perbandingan dengan Live Data:</span><h4 id="sim-delta-text" class="delta-value">Pilih lokasi di input terlebih dahulu</h4></div></div>
+                </section>
+
+                <section class="module-riwayat card">
+                    <div class="card-header"><h3><i class="fa-solid fa-clock-rotate-left"></i> Riwayat Pencarian</h3></div>
+                    <div style="overflow-x: auto;">
+                        <table class="history-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:5%;">No</th>
+                                    <th>Waktu Update</th>
+                                    <th>Wilayah / Kabupaten</th>
+                                    <th>Skor AARI</th>
+                                    <th>Status Risiko</th>
+                                    <th style="width:10%; text-align:center;">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-list">
+                                <tr><td colspan="6" style="text-align:center; padding: 2rem;">Belum ada riwayat pencarian yang tersimpan.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="history-pagination" class="pagination"></div>
+                </section>
+
+                <section class="module-tentang">
+                    <div class="card tentang-hero"><div class="hero-content"><div class="hero-icon"><i class="fa-solid fa-earth-asia"></i></div><h2>Sistem Peringatan Dini Bencana Atmosfer</h2><p>ATMOSAGE mengintegrasikan data cuaca satelit dan kualitas udara secara <i>real-time</i> dengan model Machine Learning (XGBoost) untuk menghitung <b>Atmospheric Risk Index (AARI)</b>.</p><div class="hero-buttons"><button class="btn-primary" onclick="document.querySelector('[data-page=peta]').click()"><i class="fa-solid fa-map"></i> Buka Peta Risiko</button><button class="btn-secondary" onclick="document.querySelector('[data-page=metodologi]').click()"><i class="fa-solid fa-book"></i> Pelajari Metodologi</button></div></div></div>
+                    <div class="card sumber-data-section"><div class="card-header"><h3><i class="fa-solid fa-database"></i> Sumber Data Utama</h3></div><div class="sumber-data-grid"><div class="source-card"><div class="source-icon"><i class="fa-solid fa-cloud-sun"></i></div><div class="source-info"><h4>Open-Meteo</h4><p>Data cuaca real-time & forecast parameter global.</p></div></div><div class="source-card"><div class="source-icon"><i class="fa-solid fa-satellite"></i></div><div class="source-info"><h4>CAMS</h4><p>Copernicus Atmosphere Monitoring untuk jejak polusi udara.</p></div></div><div class="source-card"><div class="source-icon"><i class="fa-solid fa-rocket"></i></div><div class="source-info"><h4>NASA POWER</h4><p>Analisis tren agroklimatologi dan paparan radiasi.</p></div></div><div class="source-card"><div class="source-icon"><i class="fa-solid fa-satellite-dish"></i></div><div class="source-info"><h4>Sentinel-5P</h4><p>Pemantauan jejak gas berbahaya dengan resolusi tinggi.</p></div></div></div></div>
+                </section>
+
+                <section class="module-metodologi card">
+                    <div class="card-header"><h3><i class="fa-solid fa-layer-group"></i> Alur Kerja (Pipeline) Pemodelan ATMOSAGE</h3></div>
+                    <div class="timeline">
+                        <div class="timeline-item"><div class="timeline-num">01</div><div class="timeline-content"><h4>Pengumpulan Data</h4><p>Mengambil data atmosfer dari Open-Meteo, CAMS, NASA POWER, dan Sentinel-5P.</p></div></div>
+                        <div class="timeline-item"><div class="timeline-num">02</div><div class="timeline-content"><h4>Pra-pemrosesan Data</h4><p>Melakukan pembenahan kualitas (data cleaning), normalisasi, dan rekayasa fitur data atmosfer.</p></div></div>
+                        <div class="timeline-item"><div class="timeline-num">03</div><div class="timeline-content"><h4>Pemodelan AI</h4><p>XGBoost digunakan untuk memprediksi nilai AARI berdasarkan 5 parameter cuaca dan polusi.</p></div></div>
+                        <div class="timeline-item"><div class="timeline-num">04</div><div class="timeline-content"><h4>Validasi Model</h4><p>Evaluasi model dengan R-squared (R²), Mean Absolute Error (MAE), dan Cross-Validation.</p></div></div>
+                        <div class="timeline-item"><div class="timeline-num">05</div><div class="timeline-content"><h4>Visualisasi dan Sistem</h4><p>Hasil divisualisasikan dalam dashboard interaktif dan siap digunakan.</p></div></div>
+                    </div>
+                </section>
+
+                <section class="module-bantuan">
+                    <div class="card">
+                        <div class="card-header"><h3><i class="fa-solid fa-circle-question"></i> Pusat Bantuan & Tutorial</h3></div>
+                        
+                        <div style="margin-top: 20px;">
+                            <h4 style="margin-bottom: 15px; color: var(--text-dark); border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">Tutorial Memahami Dashboard</h4>
+                            <ol style="margin-left: 20px; color: var(--text-muted); font-size: 14px; line-height: 1.8;">
+                                <li><b>Peta Risiko:</b> Lihat peta utama untuk mengetahui tingkat bahaya setiap provinsi/kabupaten dengan indikator warna (Hijau menunjukkan sangat aman, sementara Merah menunjukkan darurat bencana atmosfer).</li>
+                                <li><b>Pencarian Wilayah:</b> Gunakan kotak pencarian pada menu <b>Peta & Pencarian</b> untuk menemukan kabupaten/kota spesifik.</li>
+                                <li><b>Indeks AARI:</b> Menu ini membedah kalkulasi skor cuaca ekstrem menjadi bahasa yang mudah dipahami publik.</li>
+                                <li><b>Analisis Faktor (SHAP):</b> Buka halaman "Analisis SHAP" untuk memahami variabel mana yang paling dominan menyumbang status risiko pada saat ini. Semakin panjang bar ke kanan, semakin signifikan dampaknya.</li>
+                                <li><b>Simulasi:</b> Gunakan fitur "Scenario Simulation" untuk memasukkan angka cuaca secara kustom/manual untuk melihat bagaimana model XGBoost bereaksi terhadap perubahan tersebut.</li>
+                            </ol>
+                        </div>
+
+                        <div style="margin-top: 30px;">
+                            <h4 style="margin-bottom: 15px; color: var(--text-dark); border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">FAQ (Pertanyaan yang Sering Diajukan)</h4>
+                            <div class="faq-container" style="display: flex; flex-direction: column; gap: 10px;">
+                                <details class="faq-item">
+                                    <summary style="font-weight: 600; cursor: pointer; padding: 12px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 8px;">Apa itu Indeks AARI?</summary>
+                                    <p style="padding: 12px; color: var(--text-muted); font-size: 13.5px; margin:0;">AARI (Atmospheric Aerosol Risk Index) adalah indikator komposit yang menilai gabungan bahaya dari kualitas udara buruk (PM2.5, NO2, O3) dan paparan kondisi cuaca ekstrem (Suhu panas yang dikonversikan menjadi Heat Stress Index, dan UV Index).</p>
+                                </details>
+                                <details class="faq-item">
+                                    <summary style="font-weight: 600; cursor: pointer; padding: 12px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 8px;">Seberapa akurat prediksi model XGBoost ini?</summary>
+                                    <p style="padding: 12px; color: var(--text-muted); font-size: 13.5px; margin:0;">Model AI Spatiotemporal ini telah dilatih dengan dataset meteorologi gabungan beresolusi tinggi (Open-Meteo, CAMS, Sentinel-5P, NASA POWER) dan mencapai tingkat keakuratan serta validasi yang sangat baik dalam mengklasifikasikan profil risiko setiap wilayah Indonesia.</p>
+                                </details>
+                                <details class="faq-item">
+                                    <summary style="font-weight: 600; cursor: pointer; padding: 12px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 8px;">Kapan data suhu dan polusi diperbarui?</summary>
+                                    <p style="padding: 12px; color: var(--text-muted); font-size: 13.5px; margin:0;">Sistem kami menarik data API secara langsung (real-time/hourly) setiap kali Anda mengklik peta atau melakukan pencarian kota baru. Jadi data yang Anda lihat adalah kondisi atmosfer pada jam tersebut secara akurat.</p>
+                                </details>
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 30px; padding: 25px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; text-align: center;">
+                            <h4 style="color: #16a34a; margin-bottom: 10px;">Masih Membutuhkan Bantuan Khusus?</h4>
+                            <p style="color: var(--text-muted); font-size: 13.5px; margin-bottom: 20px;">Tim administrator Atmosage siap membantu Anda memahami data dan penggunaan sistem lebih detail.</p>
+                            <a href="https://wa.me/6282217742436?text=Halo%20Admin%20Atmosage,%20saya%20ingin%20bertanya%20seputar%20penggunaan%20dashboard..." target="_blank" style="display: inline-block; padding: 12px 25px; background: #25d366; color: white; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;"><i class="fa-brands fa-whatsapp" style="margin-right: 8px; font-size: 16px;"></i> Hubungi Kami via WhatsApp</a>
+                        </div>
+                    </div>
+                </section>
+                
+                <section class="module-dummy card dummy-card" id="dummy-content"><i class="fa-solid fa-screwdriver-wrench" style="font-size: 40px; color: var(--text-muted); margin-bottom: 20px;"></i><h3 id="dummy-title">Halaman Dalam Pengembangan</h3><p>Modul ini sedang disiapkan untuk pembaruan arsitektur sistem berikutnya.</p></section>
+
+            </div>
+        </main>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="js/dashboard.js"></script>
+</body>
+</html>
