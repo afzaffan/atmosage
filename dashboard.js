@@ -110,7 +110,7 @@ function getRiskColor(category) {
     return "#cbd5e1";
 }
 
-// --- 4. PEMETAAN CHOROPLETH KABUPATEN ---
+// --- 4. PEMETAAN CHOROPLETH KABUPATEN (UPDATE TIAP 10 MENIT) ---
 let geojsonLayer;
 const GEOJSON_KABUPATEN_URL = 'https://raw.githubusercontent.com/ardian28/GeoJson-Indonesia-38-Provinsi/main/Kabupaten/38%20Provinsi%20Indonesia%20-%20Kabupaten.json';
 
@@ -120,7 +120,7 @@ fetch(GEOJSON_KABUPATEN_URL).then(res => res.json()).then(data => {
         onEachFeature: function(feature, layer) {
             layer.on('mouseover', function(e) {
                 this.setStyle({ weight: 1.5, color: "#1e293b", fillOpacity: 1 });
-                let n = getDistrictName(feature.properties); let s = feature.properties.live_score || "Loading AI...";
+                let n = getDistrictName(feature.properties); let s = feature.properties.live_score || "Tarik Data...";
                 let popUpContent = `<div style="text-align:center;"><strong>${n}</strong><br>AARI: <b style="font-size:15px;">${s}</b></div>`;
                 this.bindTooltip(popUpContent, { direction: 'top', sticky: true, className: 'leaflet-tooltip' }).openTooltip();
             });
@@ -132,48 +132,75 @@ fetch(GEOJSON_KABUPATEN_URL).then(res => res.json()).then(data => {
             layer.on('click', function(e) { processLocation(getDistrictName(feature.properties), e.latlng.lat, e.latlng.lng, this); });
         }
     }).addTo(map);
-    colorMapLiveAI(geojsonLayer);
+    
+    // Tahap 1: Muat peta instan pakai CSV
+    colorMapFromStaticCSV(geojsonLayer);
+    // Tahap 2: Jadwalkan live update setiap kelipatan 10 menit
+    scheduleNextUpdate(geojsonLayer);
 });
 
-async function colorMapLiveAI(layerGroup) {
-    let layers = []; 
-    layerGroup.eachLayer(l => layers.push(l));
-    const chunkSize = 40; // Diperkecil agar URL Open-Meteo tidak kepanjangan
+function colorMapFromStaticCSV(layerGroup) {
+    fetchWithTimeout(`${API_BASE}/api/init-data`)
+        .then(res => res.json())
+        .then(res => {
+            if (res.status === 'success') {
+                globalProvinceResults = res.metrics.all_cities;
+                layerGroup.eachLayer(l => {
+                    let normGeoName = normalizeName(getDistrictName(l.feature.properties));
+                    let matchedData = globalProvinceResults.find(city => normalizeName(city.name) === normGeoName || city.name.includes(normGeoName) || normGeoName.includes(city.name));
+                    if (matchedData) {
+                        l.feature.properties.live_score = matchedData.score;
+                        l.feature.properties.live_color = matchedData.color;
+                        l.setStyle({ fillColor: matchedData.color, fillOpacity: 0.85 });
+                    }
+                });
+                updateDashboardMetrics();
+            }
+        }).catch(() => {});
+}
 
-    // PERBAIKAN: Menggunakan iterasi antrean (For-Loop) dengan Delay 1 detik
-    // untuk mencegah Open-Meteo memblokir request (Error 429 Too Many Requests)
+// LOGIKA PENJADWALAN KELIPATAN 10 MENIT
+function scheduleNextUpdate(layerGroup) {
+    const now = new Date();
+    const minutes = now.getMinutes();
+    const seconds = now.getSeconds();
+    
+    // Cari sisa waktu ke kelipatan 10 menit terdekat
+    let minutesToNext = 10 - (minutes % 10);
+    if (minutesToNext === 10 && seconds === 0) minutesToNext = 0; 
+    
+    const msToNext = (minutesToNext * 60 * 1000) - (seconds * 1000);
+    console.log(`Update Live API dijadwalkan dalam ${Math.round(msToNext/60000)} menit lagi.`);
+
+    setTimeout(() => {
+        colorMapLiveAI(layerGroup);
+        setInterval(() => colorMapLiveAI(layerGroup), 10 * 60 * 1000); // Ulangi setiap 10 menit
+    }, msToNext);
+}
+
+// LOGIKA TARIK DATA AMAN (MENCEGAH ERROR 429)
+async function colorMapLiveAI(layerGroup) {
+    let layers = []; layerGroup.eachLayer(l => layers.push(l));
+    const chunkSize = 35; // Ambil per 35 kota saja untuk menghindari error string URL terlalu panjang
+
     for (let i = 0; i < layers.length; i += chunkSize) {
         let chunk = layers.slice(i, i + chunkSize);
         let lats = chunk.map(l => l.getBounds().getCenter().lat.toFixed(4)).join(',');
         let lons = chunk.map(l => l.getBounds().getCenter().lng.toFixed(4)).join(',');
 
         try {
-            // Tarik data cuaca
-            const [resAq, resWx] = await Promise.all([
-                fetchWithTimeout(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lats}&longitude=${lons}&current=pm2_5,nitrogen_dioxide,ozone`).then(r => r.json()).catch(() => null),
-                fetchWithTimeout(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=apparent_temperature,uv_index,wind_speed_10m,wind_direction_10m,precipitation`).then(r => r.json()).catch(() => null)
-            ]);
+            const resWx = await fetchWithTimeout(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=apparent_temperature,uv_index,wind_speed_10m,wind_direction_10m,precipitation`).then(r => r.json());
 
-            // Ekstrak fitur
             let instances = chunk.map((_, j) => {
                 let wx = Array.isArray(resWx) ? resWx[j] : resWx;
                 return {
-                    lat: chunk[j].getBounds().getCenter().lat,
-                    lon: chunk[j].getBounds().getCenter().lng,
-                    windSpeed: wx?.current?.wind_speed_10m || 0,
-                    windDir: wx?.current?.wind_direction_10m || 0,
-                    precipitation: wx?.current?.precipitation || 0,
-                    UV: wx?.current?.uv_index || 0,
-                    HSI: extractHSI(wx)
+                    lat: chunk[j].getBounds().getCenter().lat, lon: chunk[j].getBounds().getCenter().lng,
+                    windSpeed: wx?.current?.wind_speed_10m || 0, windDir: wx?.current?.wind_direction_10m || 0,
+                    precipitation: wx?.current?.precipitation || 0, UV: wx?.current?.uv_index || 0, HSI: extractHSI(wx)
                 };
             });
 
-            // Kirim ke Backend Flask
-            const predictRes = await fetchWithTimeout(`${API_BASE}/predict-batch`, { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify({ instances: instances }) 
-            }).then(r => r.json());
+            const predictRes = await fetchWithTimeout(`${API_BASE}/predict-batch`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instances: instances }) }).then(r => r.json());
 
             if (predictRes && predictRes.status === "success") {
                 for (let j = 0; j < chunk.length; j++) {
@@ -182,21 +209,19 @@ async function colorMapLiveAI(layerGroup) {
                     chunk[j].feature.properties.live_color = result.color;
                     chunk[j].setStyle({ fillColor: result.color, fillOpacity: 0.85 });
                     
-                    globalProvinceResults.push({ 
-                        lat: instances[j].lat, lon: instances[j].lon, 
-                        name: getDistrictName(chunk[j].feature.properties), 
-                        score: Math.round(result.score), cat: result.category, color: result.color 
-                    });
+                    let normName = normalizeName(getDistrictName(chunk[j].feature.properties));
+                    let existIdx = globalProvinceResults.findIndex(c => normalizeName(c.name) === normName);
+                    if(existIdx !== -1) {
+                        globalProvinceResults[existIdx].score = Math.round(result.score);
+                        globalProvinceResults[existIdx].cat = result.category; globalProvinceResults[existIdx].color = result.color;
+                    }
                 }
-                updateDashboardMetrics(); // Memperbarui KPI secara bertahap saat peta mulai diwarnai
+                updateDashboardMetrics();
             }
-            
-            // JEDA (DELAY) KUNCI: Menunggu 1 detik sebelum memproses batch berikutnya
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-        } catch(e) {
-            console.warn("Gagal merender chunk (kemungkinan 429 atau CORS)", e);
-        }
+        } catch(e) {}
+        
+        // SANGAT PENTING: Jeda 3 detik per kelompok agar Open-Meteo tidak mendeteksi spam
+        await new Promise(resolve => setTimeout(resolve, 3000));
     }
 }
 
@@ -216,7 +241,6 @@ const pageTitles = {
     "bantuan": { title: "Pusat Bantuan", subtitle: "Panduan Penggunaan & FAQ Dashboard" }
 };
 
-const dummyPages = []; 
 let resizeTimer;
 
 function showPage(pageName) {
@@ -333,16 +357,15 @@ function checkAlert(score, cityName) {
 }
 
 function highlightAARILegend(score) {
-    ['legend-sangat-rendah', 'legend-rendah', 'legend-sedang', 'legend-tinggi', 'legend-sangat-tinggi'].forEach(id => {
+    ['legend-rendah', 'legend-sedang', 'legend-tinggi', 'legend-sangat-tinggi'].forEach(id => {
         let el = document.getElementById(id);
         if(el) el.classList.remove('active');
     });
 
     let activeId = "";
-    if(score < 20) activeId = "legend-sangat-rendah";
-    else if(score < 40) activeId = "legend-rendah";
-    else if(score < 60) activeId = "legend-sedang";
-    else if(score < 80) activeId = "legend-tinggi";
+    if(score < 25) activeId = "legend-rendah";
+    else if(score < 50) activeId = "legend-sedang";
+    else if(score < 75) activeId = "legend-tinggi";
     else activeId = "legend-sangat-tinggi";
 
     let targetEl = document.getElementById(activeId);
@@ -418,25 +441,17 @@ function processLocation(name, lat, lon, layerInstance = null) {
                 document.getElementById('risk-category').innerText = predictData.category;
                 let hexColor = getRiskColor(predictData.category);
                 let degrees = (predictData.score / 100) * 360;
-                // Sintaksis aman untuk lingkaran conic-gradient agar kompatibel dengan perbandingan wilayah dan semua browser 
                 document.getElementById('score-gauge').style.background = `conic-gradient(${hexColor} ${degrees}deg, #e2e8f0 ${degrees}deg)`;
                 document.getElementById('risk-category').style.backgroundColor = hexColor; document.getElementById('risk-category').style.color = "#fff";
 
                 highlightAARILegend(predictData.score);
 
                 let interpretasiDesc = "";
-                if (predictData.score < 20)
-                    interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Sangat Rendah</b>. Kondisi atmosfer memberikan tekanan lingkungan yang minimal terhadap tubuh sehingga risiko percepatan proses penuaan akibat paparan atmosfer relatif sangat kecil.`;
-                else if (predictData.score < 40)
-                    interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Rendah</b>. Kondisi atmosfer masih tergolong baik dengan potensi dampak biologis yang rendah. Aktivitas luar ruangan umumnya dapat dilakukan tanpa kekhawatiran berarti.`;
-                else if (predictData.score < 60)
-                    interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Sedang</b>. Paparan atmosfer mulai memberikan tekanan fisiologis yang dapat berkontribusi terhadap percepatan proses penuaan biologis apabila terjadi secara terus-menerus. Disarankan untuk membatasi durasi paparan yang tidak diperlukan.`;
-                else if (predictData.score < 80)
-                    interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Tinggi</b>. Kondisi atmosfer berpotensi meningkatkan stres oksidatif dan tekanan lingkungan terhadap tubuh apabila paparan berlangsung lama. Sebaiknya kurangi aktivitas luar ruangan yang berkepanjangan dan gunakan perlindungan yang sesuai.`;
-                else
-                    interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Sangat Tinggi</b>. Paparan atmosfer pada kondisi ini berpotensi memberikan tekanan biologis yang signifikan sehingga dapat meningkatkan risiko percepatan proses penuaan apabila terjadi berulang atau dalam waktu lama. Hindari paparan yang tidak perlu dan gunakan perlindungan diri yang memadai saat harus beraktivitas di luar ruangan.`;
-                if (document.getElementById('aari-interpretasi-text'))
-                    document.getElementById('aari-interpretasi-text').innerHTML = interpretasiDesc;
+                if (predictData.score < 25) interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Rendah</b>. Kondisi sangat ideal dan aman untuk beraktivitas di luar ruangan.`;
+                else if (predictData.score < 50) interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Sedang</b>. Kondisi cukup aman bagi sebagian besar orang, namun kelompok sensitif (seperti lansia atau penderita asma) sebaiknya membatasi aktivitas berat di luar.`;
+                else if (predictData.score < 75) interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Tinggi</b>. Disarankan untuk mengurangi aktivitas di luar ruangan, menggunakan masker, dan menjaga kesehatan.`;
+                else interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Sangat Tinggi</b>. Sangat berbahaya. Hindari seluruh aktivitas di luar ruangan, tutup ventilasi rumah, dan nyalakan pemurni udara.`;
+                if (document.getElementById('aari-interpretasi-text')) document.getElementById('aari-interpretasi-text').innerHTML = interpretasiDesc;
 
                 if(layerInstance) { layerInstance.feature.properties.live_score = Math.round(predictData.score); layerInstance.feature.properties.live_color = hexColor; layerInstance.setStyle({ fillColor: hexColor, color: "#1e293b" }); }
 
@@ -455,7 +470,6 @@ function processLocation(name, lat, lon, layerInstance = null) {
             }).catch(err => {});
         }).catch(err => {});
 }
-
 
 // --- 8. LOGIKA PENGISIAN DROPDOWN (PERBANDINGAN & SIMULASI) ---
 function populateGlobalDropdowns() {
@@ -487,7 +501,6 @@ function processCompare(coordString, colNum, selectElement) {
     const coords = coordString.split(',');
     const lat = parseFloat(coords[0]); const lon = parseFloat(coords[1]);
     
-    // Perbaikan untuk mengganti judul "Wilayah A" menjadi nama kota yang dipilih
     const cityName = selectElement.options[selectElement.selectedIndex].text;
     const titleEl = document.getElementById(`comp-title-${colNum}`);
     if(titleEl) titleEl.innerHTML = `<i class="fa-solid fa-city"></i> ${cityName}`;
@@ -547,7 +560,7 @@ if(simSearchInput) {
                 fetchWithTimeout(`${API_BASE}/predict`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat: city.lat, lon: city.lon, windSpeed: windS, windDir: windD, precipitation: prec, UV: uvI, HSI: hsiI }) })
                 .then(r=>r.json()).then(data => { 
                     simLiveScore = data.score; 
-                    simBaselineParams = { score: data.score, hsi: hsiI, uv: uvI, precip: prec, windSpeed: windS };
+                    simBaselineParams = { score: data.score, hsi: hsiI, uv: uvI, precip: prec, windSpeed: windS }; 
                 });
             }).catch(() => {});
         }
@@ -563,11 +576,9 @@ simParams.forEach(param => {
 let btnSimulate = document.getElementById('btn-simulate');
 if(btnSimulate) {
     btnSimulate.addEventListener('click', function() {
-        if(Object.keys(simBaselineParams).length === 0) { alert("Silakan pilih Wilayah Simulasi terlebih dahulu!"); return; }
-
+        if(Object.keys(simBaselineParams).length === 0) { alert("Silakan ketik nama kota dan pilih Wilayah Basis Simulasi di form Pencarian atas terlebih dahulu!"); return; }
         const btn = this; btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Menghitung...`;
         
-        // Membawa parameter is_simulation beserta baseline aslinya untuk diproses Pearson
         const payload = {
             lat: currentLat, lon: currentLon,
             windSpeed: parseFloat(document.getElementById('sim-val-windspeed').value),
