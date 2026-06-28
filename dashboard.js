@@ -70,7 +70,7 @@ fetchWithTimeout(`${API_BASE}/features`).then(r => r.json()).then(data => {
 // --- 3. LOGIKA TOP 10 & KPI ---
 let globalProvinceResults = [];
 
-function updateDashboardMetrics() {
+function updateDashboardMetrics(source = "") {
     if (globalProvinceResults.length === 0) return;
     const uniqueResults = Array.from(new Map(globalProvinceResults.map(item => [item.name, item])).values());
     uniqueResults.sort((a, b) => b.score - a.score);
@@ -83,7 +83,9 @@ function updateDashboardMetrics() {
     });
 
     let avgScore = (totalScore / uniqueResults.length).toFixed(1);
-    document.getElementById('kpi-avg').innerHTML = `${avgScore} <span>(Live AI)</span>`;
+    let statText = source === 'live_ai' ? '(Live AI)' : '(Memuat Live AI...)';
+    
+    document.getElementById('kpi-avg').innerHTML = `${avgScore} <span style="font-size:12px;">${statText}</span>`;
     document.getElementById('kpi-tinggi').innerHTML = `${countTinggi} <span>Titik</span>`;
     document.getElementById('kpi-sangat-tinggi').innerHTML = `${countSangatTinggi} <span>Titik</span>`;
 
@@ -110,7 +112,7 @@ function getRiskColor(category) {
     return "#cbd5e1";
 }
 
-// --- 4. PEMETAAN CHOROPLETH KABUPATEN (UPDATE TIAP 10 MENIT) ---
+// --- 4. PEMETAAN CHOROPLETH KABUPATEN (SEKARANG DARI BACKEND LANGSUNG) ---
 let geojsonLayer;
 const GEOJSON_KABUPATEN_URL = 'https://raw.githubusercontent.com/ardian28/GeoJson-Indonesia-38-Provinsi/main/Kabupaten/38%20Provinsi%20Indonesia%20-%20Kabupaten.json';
 
@@ -120,7 +122,7 @@ fetch(GEOJSON_KABUPATEN_URL).then(res => res.json()).then(data => {
         onEachFeature: function(feature, layer) {
             layer.on('mouseover', function(e) {
                 this.setStyle({ weight: 1.5, color: "#1e293b", fillOpacity: 1 });
-                let n = getDistrictName(feature.properties); let s = feature.properties.live_score || "Tarik Data...";
+                let n = getDistrictName(feature.properties); let s = feature.properties.live_score || "Loading...";
                 let popUpContent = `<div style="text-align:center;"><strong>${n}</strong><br>AARI: <b style="font-size:15px;">${s}</b></div>`;
                 this.bindTooltip(popUpContent, { direction: 'top', sticky: true, className: 'leaflet-tooltip' }).openTooltip();
             });
@@ -133,14 +135,18 @@ fetch(GEOJSON_KABUPATEN_URL).then(res => res.json()).then(data => {
         }
     }).addTo(map);
     
-    // Tahap 1: Muat peta instan pakai CSV
-    colorMapFromStaticCSV(geojsonLayer);
-    // Tahap 2: Jadwalkan live update setiap kelipatan 10 menit
-    scheduleNextUpdate(geojsonLayer);
+    // Panggil data map untuk pertama kalinya
+    fetchMapDataFromServer(geojsonLayer);
+    
+    // Refresh otomatis tiap 10 Menit tanpa nge-lag browser
+    setInterval(() => {
+        fetchMapDataFromServer(geojsonLayer);
+    }, 10 * 60 * 1000); 
 });
 
-function colorMapFromStaticCSV(layerGroup) {
-    fetchWithTimeout(`${API_BASE}/api/init-data`)
+// Javascript kini hanya perlu 1 panggilan sederhana untuk mewarnai ratusan kota!
+function fetchMapDataFromServer(layerGroup) {
+    fetchWithTimeout(`${API_BASE}/api/live-data`)
         .then(res => res.json())
         .then(res => {
             if (res.status === 'success') {
@@ -154,76 +160,11 @@ function colorMapFromStaticCSV(layerGroup) {
                         l.setStyle({ fillColor: matchedData.color, fillOpacity: 0.85 });
                     }
                 });
-                updateDashboardMetrics();
+                updateDashboardMetrics(res.source);
             }
-        }).catch(() => {});
+        }).catch(err => console.warn("Gagal menarik update peta dari Backend", err));
 }
 
-// LOGIKA PENJADWALAN KELIPATAN 10 MENIT
-function scheduleNextUpdate(layerGroup) {
-    const now = new Date();
-    const minutes = now.getMinutes();
-    const seconds = now.getSeconds();
-    
-    // Cari sisa waktu ke kelipatan 10 menit terdekat
-    let minutesToNext = 10 - (minutes % 10);
-    if (minutesToNext === 10 && seconds === 0) minutesToNext = 0; 
-    
-    const msToNext = (minutesToNext * 60 * 1000) - (seconds * 1000);
-    console.log(`Update Live API dijadwalkan dalam ${Math.round(msToNext/60000)} menit lagi.`);
-
-    setTimeout(() => {
-        colorMapLiveAI(layerGroup);
-        setInterval(() => colorMapLiveAI(layerGroup), 10 * 60 * 1000); // Ulangi setiap 10 menit
-    }, msToNext);
-}
-
-// LOGIKA TARIK DATA AMAN (MENCEGAH ERROR 429)
-async function colorMapLiveAI(layerGroup) {
-    let layers = []; layerGroup.eachLayer(l => layers.push(l));
-    const chunkSize = 35; // Ambil per 35 kota saja untuk menghindari error string URL terlalu panjang
-
-    for (let i = 0; i < layers.length; i += chunkSize) {
-        let chunk = layers.slice(i, i + chunkSize);
-        let lats = chunk.map(l => l.getBounds().getCenter().lat.toFixed(4)).join(',');
-        let lons = chunk.map(l => l.getBounds().getCenter().lng.toFixed(4)).join(',');
-
-        try {
-            const resWx = await fetchWithTimeout(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=apparent_temperature,uv_index,wind_speed_10m,wind_direction_10m,precipitation`).then(r => r.json());
-
-            let instances = chunk.map((_, j) => {
-                let wx = Array.isArray(resWx) ? resWx[j] : resWx;
-                return {
-                    lat: chunk[j].getBounds().getCenter().lat, lon: chunk[j].getBounds().getCenter().lng,
-                    windSpeed: wx?.current?.wind_speed_10m || 0, windDir: wx?.current?.wind_direction_10m || 0,
-                    precipitation: wx?.current?.precipitation || 0, UV: wx?.current?.uv_index || 0, HSI: extractHSI(wx)
-                };
-            });
-
-            const predictRes = await fetchWithTimeout(`${API_BASE}/predict-batch`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instances: instances }) }).then(r => r.json());
-
-            if (predictRes && predictRes.status === "success") {
-                for (let j = 0; j < chunk.length; j++) {
-                    let result = predictRes.results[j];
-                    chunk[j].feature.properties.live_score = Math.round(result.score);
-                    chunk[j].feature.properties.live_color = result.color;
-                    chunk[j].setStyle({ fillColor: result.color, fillOpacity: 0.85 });
-                    
-                    let normName = normalizeName(getDistrictName(chunk[j].feature.properties));
-                    let existIdx = globalProvinceResults.findIndex(c => normalizeName(c.name) === normName);
-                    if(existIdx !== -1) {
-                        globalProvinceResults[existIdx].score = Math.round(result.score);
-                        globalProvinceResults[existIdx].cat = result.category; globalProvinceResults[existIdx].color = result.color;
-                    }
-                }
-                updateDashboardMetrics();
-            }
-        } catch(e) {}
-        
-        // SANGAT PENTING: Jeda 3 detik per kelompok agar Open-Meteo tidak mendeteksi spam
-        await new Promise(resolve => setTimeout(resolve, 3000));
-    }
-}
 
 // --- 5. LOGIKA ROUTING HALAMAN ---
 const pageTitles = {
@@ -448,11 +389,18 @@ function processLocation(name, lat, lon, layerInstance = null) {
                 highlightAARILegend(predictData.score);
 
                 let interpretasiDesc = "";
-                if (predictData.score < 25) interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Rendah</b>. Kondisi sangat ideal dan aman untuk beraktivitas di luar ruangan.`;
-                else if (predictData.score < 50) interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Sedang</b>. Kondisi cukup aman bagi sebagian besar orang, namun kelompok sensitif (seperti lansia atau penderita asma) sebaiknya membatasi aktivitas berat di luar.`;
-                else if (predictData.score < 75) interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Tinggi</b>. Disarankan untuk mengurangi aktivitas di luar ruangan, menggunakan masker, dan menjaga kesehatan.`;
-                else interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Sangat Tinggi</b>. Sangat berbahaya. Hindari seluruh aktivitas di luar ruangan, tutup ventilasi rumah, dan nyalakan pemurni udara.`;
-                if (document.getElementById('aari-interpretasi-text')) document.getElementById('aari-interpretasi-text').innerHTML = interpretasiDesc;
+                if (predictData.score < 20)
+                    interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Sangat Rendah</b>. Kondisi atmosfer memberikan tekanan lingkungan yang minimal terhadap tubuh sehingga risiko percepatan proses penuaan akibat paparan atmosfer relatif sangat kecil.`;
+                else if (predictData.score < 40)
+                    interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Rendah</b>. Kondisi atmosfer masih tergolong baik dengan potensi dampak biologis yang rendah. Aktivitas luar ruangan umumnya dapat dilakukan tanpa kekhawatiran berarti.`;
+                else if (predictData.score < 60)
+                    interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Sedang</b>. Paparan atmosfer mulai memberikan tekanan fisiologis yang dapat berkontribusi terhadap percepatan proses penuaan biologis apabila terjadi secara terus-menerus. Disarankan untuk membatasi durasi paparan yang tidak diperlukan.`;
+                else if (predictData.score < 80)
+                    interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Tinggi</b>. Kondisi atmosfer berpotensi meningkatkan stres oksidatif dan tekanan lingkungan terhadap tubuh apabila paparan berlangsung lama. Sebaiknya kurangi aktivitas luar ruangan yang berkepanjangan dan gunakan perlindungan yang sesuai.`;
+                else
+                    interpretasiDesc = `Nilai AARI <b>${predictData.score.toFixed(1)}</b> menunjukkan tingkat risiko penuaan biologis berbasis atmosfer yang <b>Sangat Tinggi</b>. Paparan atmosfer pada kondisi ini berpotensi memberikan tekanan biologis yang signifikan sehingga dapat meningkatkan risiko percepatan proses penuaan apabila terjadi berulang atau dalam waktu lama. Hindari paparan yang tidak perlu dan gunakan perlindungan diri yang memadai saat harus beraktivitas di luar ruangan.`;
+                if (document.getElementById('aari-interpretasi-text'))
+                    document.getElementById('aari-interpretasi-text').innerHTML = interpretasiDesc;
 
                 if(layerInstance) { layerInstance.feature.properties.live_score = Math.round(predictData.score); layerInstance.feature.properties.live_color = hexColor; layerInstance.setStyle({ fillColor: hexColor, color: "#1e293b" }); }
 
