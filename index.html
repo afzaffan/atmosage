@@ -243,7 +243,7 @@
                 <section class="module-metodologi card">
                     <div class="card-header"><h3><i class="fa-solid fa-layer-group"></i> Alur Kerja (Pipeline) Pemodelan ATMOSAGE</h3></div>
                     <div class="timeline">
-                        <div class="timeline-item"><div class="timeline-num">01</div><div class="timeline-content"><h4>Pengumpulan Data</h4><p>Mengambil data atmosfer dari Open-Meteo, CAMS, NASA POWER, dan Sentinel-5P.</p></div></div>
+                        <div class="timeline-item"><div class="timeline-num">01</div><div class="timeline-content"><h4>Pengumpulan Data</h4><p>Mengambil data atmosfer dari Open-Meteo, CAMS, NASA POWER, dan ERA 5 daily data.</p></div></div>
                         <div class="timeline-item"><div class="timeline-num">02</div><div class="timeline-content"><h4>Pra-pemrosesan Data</h4><p>Melakukan pembenahan kualitas (data cleaning), normalisasi, dan rekayasa fitur data atmosfer.</p></div></div>
                         <div class="timeline-item"><div class="timeline-num">03</div><div class="timeline-content"><h4>Pemodelan AI</h4><p>XGBoost digunakan untuk memprediksi nilai AARI berdasarkan 5 parameter cuaca dan polusi.</p></div></div>
                         <div class="timeline-item"><div class="timeline-num">04</div><div class="timeline-content"><h4>Validasi Model</h4><p>Evaluasi model dengan R-squared (R²), Mean Absolute Error (MAE), dan Cross-Validation.</p></div></div>
@@ -275,7 +275,7 @@
                                 </details>
                                 <details class="faq-item">
                                     <summary style="font-weight: 600; cursor: pointer; padding: 12px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 8px;">Seberapa akurat prediksi model XGBoost ini?</summary>
-                                    <p style="padding: 12px; color: var(--text-muted); font-size: 13.5px; margin:0;">Model AI Spatiotemporal ini telah dilatih dengan dataset meteorologi gabungan beresolusi tinggi (Open-Meteo, CAMS, Sentinel-5P, NASA POWER) dan mencapai tingkat keakuratan serta validasi yang sangat baik dalam mengklasifikasikan profil risiko setiap wilayah Indonesia.</p>
+                                    <p style="padding: 12px; color: var(--text-muted); font-size: 13.5px; margin:0;">Model AI Spatiotemporal ini telah dilatih dengan dataset meteorologi gabungan beresolusi tinggi (Open-Meteo, CAMS, ERA 5 daily data, NASA POWER) dan mencapai tingkat keakuratan serta validasi yang sangat baik dalam mengklasifikasikan profil risiko setiap wilayah Indonesia.</p>
                                 </details>
                                 <details class="faq-item">
                                     <summary style="font-weight: 600; cursor: pointer; padding: 12px; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 8px;">Kapan data suhu dan polusi diperbarui?</summary>
