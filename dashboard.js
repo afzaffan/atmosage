@@ -357,15 +357,16 @@ function checkAlert(score, cityName) {
 }
 
 function highlightAARILegend(score) {
-    ['legend-rendah', 'legend-sedang', 'legend-tinggi', 'legend-sangat-tinggi'].forEach(id => {
+    ['legend-sangat-rendah', 'legend-rendah', 'legend-sedang', 'legend-tinggi', 'legend-sangat-tinggi'].forEach(id => {
         let el = document.getElementById(id);
         if(el) el.classList.remove('active');
     });
 
     let activeId = "";
-    if(score < 25) activeId = "legend-rendah";
-    else if(score < 50) activeId = "legend-sedang";
-    else if(score < 75) activeId = "legend-tinggi";
+    if(score < 20) activeId = "legend-sangat-rendah";
+    else if(score < 40) activeId = "legend-rendah";
+    else if(score < 60) activeId = "legend-sedang";
+    else if(score < 80) activeId = "legend-tinggi";
     else activeId = "legend-sangat-tinggi";
 
     let targetEl = document.getElementById(activeId);
