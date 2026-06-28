@@ -1,4 +1,4 @@
-const API_BASE = "https://afzaffan.pythonanywhere.com";
+const API_BASE = "https://afzaffan-atmosage-api.hf.space";
 
 function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
     const controller = new AbortController();
