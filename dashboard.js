@@ -136,49 +136,68 @@ fetch(GEOJSON_KABUPATEN_URL).then(res => res.json()).then(data => {
 });
 
 async function colorMapLiveAI(layerGroup) {
-    let layers = []; layerGroup.eachLayer(l => layers.push(l));
-    const chunkSize = 50; let promises = []; 
+    let layers = []; 
+    layerGroup.eachLayer(l => layers.push(l));
+    const chunkSize = 40; // Diperkecil agar URL Open-Meteo tidak kepanjangan
 
+    // PERBAIKAN: Menggunakan iterasi antrean (For-Loop) dengan Delay 1 detik
+    // untuk mencegah Open-Meteo memblokir request (Error 429 Too Many Requests)
     for (let i = 0; i < layers.length; i += chunkSize) {
         let chunk = layers.slice(i, i + chunkSize);
         let lats = chunk.map(l => l.getBounds().getCenter().lat.toFixed(4)).join(',');
         let lons = chunk.map(l => l.getBounds().getCenter().lng.toFixed(4)).join(',');
 
-        let chunkPromise = (async () => {
-            try {
-                const [resWx] = await Promise.all([
-                    fetchWithTimeout(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=apparent_temperature,uv_index,wind_speed_10m,wind_direction_10m,precipitation`).then(r => r.json()).catch(() => null)
-                ]);
+        try {
+            // Tarik data cuaca
+            const [resAq, resWx] = await Promise.all([
+                fetchWithTimeout(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lats}&longitude=${lons}&current=pm2_5,nitrogen_dioxide,ozone`).then(r => r.json()).catch(() => null),
+                fetchWithTimeout(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=apparent_temperature,uv_index,wind_speed_10m,wind_direction_10m,precipitation`).then(r => r.json()).catch(() => null)
+            ]);
 
-                let instances = chunk.map((_, j) => {
-                    let wx = Array.isArray(resWx) ? resWx[j] : resWx;
-                    return {
-                        lat: chunk[j].getBounds().getCenter().lat,
-                        lon: chunk[j].getBounds().getCenter().lng,
-                        windSpeed: wx?.current?.wind_speed_10m || 0,
-                        windDir: wx?.current?.wind_direction_10m || 0,
-                        precipitation: wx?.current?.precipitation || 0,
-                        UV: wx?.current?.uv_index || 0,
-                        HSI: extractHSI(wx)
-                    };
-                });
+            // Ekstrak fitur
+            let instances = chunk.map((_, j) => {
+                let wx = Array.isArray(resWx) ? resWx[j] : resWx;
+                return {
+                    lat: chunk[j].getBounds().getCenter().lat,
+                    lon: chunk[j].getBounds().getCenter().lng,
+                    windSpeed: wx?.current?.wind_speed_10m || 0,
+                    windDir: wx?.current?.wind_direction_10m || 0,
+                    precipitation: wx?.current?.precipitation || 0,
+                    UV: wx?.current?.uv_index || 0,
+                    HSI: extractHSI(wx)
+                };
+            });
 
-                const predictRes = await fetchWithTimeout(`${API_BASE}/predict-batch`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instances: instances }) }).then(r => r.json());
+            // Kirim ke Backend Flask
+            const predictRes = await fetchWithTimeout(`${API_BASE}/predict-batch`, { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify({ instances: instances }) 
+            }).then(r => r.json());
 
-                if (predictRes.status === "success") {
-                    for (let j = 0; j < chunk.length; j++) {
-                        let result = predictRes.results[j];
-                        chunk[j].feature.properties.live_score = Math.round(result.score);
-                        chunk[j].feature.properties.live_color = result.color;
-                        chunk[j].setStyle({ fillColor: result.color, fillOpacity: 0.85 });
-                        globalProvinceResults.push({ lat: instances[j].lat, lon: instances[j].lon, name: getDistrictName(chunk[j].feature.properties), score: Math.round(result.score), cat: result.category, color: result.color });
-                    }
+            if (predictRes && predictRes.status === "success") {
+                for (let j = 0; j < chunk.length; j++) {
+                    let result = predictRes.results[j];
+                    chunk[j].feature.properties.live_score = Math.round(result.score);
+                    chunk[j].feature.properties.live_color = result.color;
+                    chunk[j].setStyle({ fillColor: result.color, fillOpacity: 0.85 });
+                    
+                    globalProvinceResults.push({ 
+                        lat: instances[j].lat, lon: instances[j].lon, 
+                        name: getDistrictName(chunk[j].feature.properties), 
+                        score: Math.round(result.score), cat: result.category, color: result.color 
+                    });
                 }
-            } catch(e) {}
-        })();
-        promises.push(chunkPromise);
+                updateDashboardMetrics(); // Memperbarui KPI secara bertahap saat peta mulai diwarnai
+            }
+            
+            // JEDA (DELAY) KUNCI: Menunggu 1 detik sebelum memproses batch berikutnya
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+        } catch(e) {
+            console.warn("Gagal merender chunk (kemungkinan 429 atau CORS)", e);
+        }
     }
-    await Promise.all(promises); updateDashboardMetrics(); 
 }
 
 // --- 5. LOGIKA ROUTING HALAMAN ---
